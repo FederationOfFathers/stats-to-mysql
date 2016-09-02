@@ -23,14 +23,14 @@ func getUserHourlySumStats(user, stat string, last int) (int, error) {
 	}
 	if last >= 0 {
 		row = db.QueryRow(
-			"SELECT SUM(`value`) FROM stats_hourly WHERE `member`=? AND `stat_id`=? AND `when` >= DATE_SUB(NOW(), INTERVAL ? HOUR)",
-			user,
+			"SELECT SUM(`value`) FROM stats_hourly WHERE `member_id`=? AND `stat_id`=? AND `when` >= DATE_SUB(NOW(), INTERVAL ? HOUR)",
+			userToID.find(user),
 			stat_id,
 			last)
 	} else {
 		row = db.QueryRow(
-			"SELECT SUM(`value`) FROM stats_hourly WHERE `member`=? AND `stat_id`=?",
-			user,
+			"SELECT SUM(`value`) FROM stats_hourly WHERE `member_id`=? AND `stat_id`=?",
+			userToID.find(user),
 			stat_id)
 	}
 	err = row.Scan(&rval)

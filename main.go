@@ -27,7 +27,38 @@ var (
 	nsqChannel       = "stats-to-mysql"
 	nsqAddress       = "127.0.0.1:4150"
 	db               *sql.DB
+	userToID         = userLookup{}
+	userAdd          *sql.Stmt
+	userGet          *sql.Stmt
 )
+
+type userLookup map[string]string
+
+func (u userLookup) find(userID string) string {
+	memberID, ok := u[userID]
+	if !ok {
+		_, err := userAdd.Exec(userID)
+		if err != nil {
+			log.Println("Error adding user", userID)
+		}
+		rows, err := userGet.Query(userID)
+		if err != nil {
+			log.Fatal("Error looking up user", userID)
+		} else {
+			for rows.Next() {
+				err := rows.Scan(&memberID)
+				if err != nil {
+					log.Println("Error scanning user lookup result into memberID", err)
+				} else {
+					userToID[userID] = memberID
+					log.Println("found ID for", userID, "=", memberID)
+				}
+			}
+		}
+		rows.Close()
+	}
+	return memberID
+}
 
 type statMessage struct {
 	Platform string    `json:"platform"`
@@ -62,7 +93,7 @@ func init() {
 func mustPrepare(name string, query string) *sql.Stmt {
 	s, err := db.Prepare(query)
 	if err != nil {
-		log.Fatal("Error creating %s: %s", name, err.Error())
+		log.Fatalf("Error creating %s: %s", name, err.Error())
 	}
 	return s
 }
@@ -77,15 +108,36 @@ func mustConnect() *sql.DB {
 	return db
 }
 
+func cleanupHourly() {
+	t := time.Tick(time.Minute)
+	for {
+		select {
+		case <-t:
+			res, err := db.Exec("DELETE FROM `stats_hourly` WHERE `when` < DATE_SUB(NOW(), INTERVAL 720 HOUR) LIMIT 250")
+			if err != nil {
+				log.Fatal("Error cleaning up stats_hourly")
+			}
+			n, _ := res.RowsAffected()
+			log.Println("cleaning records from `stats_hourly`", n)
+		}
+	}
+}
+
 func main() {
 	db = mustConnect()
 	defer db.Close()
+	userAdd = mustPrepare(
+		"add user stmt",
+		"INSERT IGNORE INTO `members` (`slack`) VALUES(?)")
+	userGet = mustPrepare(
+		"get user stmt",
+		"SELECT `ID` FROM `members` WHERE `slack` = ? LIMIT 1")
 	stats := mustPrepare(
 		"stats insert stmt",
 		"INSERT IGNORE INTO `stats` (platform,product,stat,sub1,sub2,sub3,info) VALUES(?,?,?,?,?,?,?)")
 	latest := mustPrepare(
 		"stats_latest update statement",
-		"INSERT INTO `stats_latest` (`member`,`stat_id`,`daily`,`hourly`)"+
+		"INSERT INTO `stats_latest` (`member_id`,`stat_id`,`daily`,`hourly`)"+
 			"  SELECT ?,ID,DATE_FORMAT(?,'%Y-%m-%d %H:00:00'),DATE_FORMAT(?,'%Y-%m-%d %H:00:00')"+
 			"    FROM `stats`"+
 			"    WHERE platform=?"+
@@ -97,7 +149,7 @@ func main() {
 			"	  ON DUPLICATE KEY UPDATE `daily`=VALUES(`daily`),`hourly`=VALUES(`hourly`)")
 	setDaily := mustPrepare(
 		"daily insert stmt",
-		"INSERT INTO `stats_daily` (`when`,`stat_id`,`member`,`value`)"+
+		"INSERT INTO `stats_daily` (`when`,`stat_id`,`member_id`,`value`)"+
 			"  SELECT ?,ID,?,?"+
 			"    FROM `stats`"+
 			"    WHERE platform=?"+
@@ -109,7 +161,7 @@ func main() {
 			"  ON DUPLICATE KEY UPDATE `value`=?")
 	incrDaily := mustPrepare(
 		"daily insert stmt",
-		"INSERT INTO `stats_daily` (`when`,`stat_id`,`member`,`value`)"+
+		"INSERT INTO `stats_daily` (`when`,`stat_id`,`member_id`,`value`)"+
 			"  SELECT ?,ID,?,?"+
 			"    FROM `stats`"+
 			"    WHERE platform=?"+
@@ -121,7 +173,7 @@ func main() {
 			"  ON DUPLICATE KEY UPDATE `value`=`value`+?")
 	setHourly := mustPrepare(
 		"hourly insert stmt",
-		"INSERT INTO `stats_hourly` (`when`,`stat_id`,`member`,`value`)"+
+		"INSERT INTO `stats_hourly` (`when`,`stat_id`,`member_id`,`value`)"+
 			"  SELECT DATE_FORMAT(?,'%Y-%m-%d %H:00:00'),ID,?,?"+
 			"    FROM `stats`"+
 			"    WHERE platform=?"+
@@ -133,7 +185,7 @@ func main() {
 			"  ON DUPLICATE KEY UPDATE `value`=?")
 	incrHourly := mustPrepare(
 		"hourly insert stmt",
-		"INSERT INTO `stats_hourly` (`when`,`stat_id`,`member`,`value`)"+
+		"INSERT INTO `stats_hourly` (`when`,`stat_id`,`member_id`,`value`)"+
 			"  SELECT DATE_FORMAT(?,'%Y-%m-%d %H:00:00'),ID,?,?"+
 			"    FROM `stats`"+
 			"    WHERE platform=?"+
@@ -144,19 +196,21 @@ func main() {
 			"      AND sub3=?"+
 			"  ON DUPLICATE KEY UPDATE `value`=`value`+?")
 
+	go cleanupHourly()
 	consumer, err := nsq.NewConsumer(nsqTopic, nsqChannel, nsq.NewConfig())
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	consumer.AddHandler(nsq.HandlerFunc(func(m *nsq.Message) error {
+	consumer.AddConcurrentHandlers(nsq.HandlerFunc(func(m *nsq.Message) error {
 		var stat statMessage
 		if err := json.Unmarshal(m.Body, &stat); err != nil {
 			log.Printf("Error unmarshalling stat message: %s -- %s", err.Error(), string(m.Body))
 		}
+		memberID := userToID.find(stat.Member)
 		tx, err := db.Begin()
 		if err != nil {
-			log.Fatal("Error beginning transaction: %s", err.Error())
+			log.Fatalf("Error beginning transaction: %s", err.Error())
 		}
 		_, err = tx.Stmt(stats).Exec(stat.Platform, stat.Product, stat.Stat, stat.Sub1, stat.Sub2, stat.Sub3, stat.Info)
 		switch stat.Method {
@@ -164,7 +218,7 @@ func main() {
 			if err == nil {
 				_, err = tx.Stmt(incrDaily).Exec(
 					stat.When.Format(dateTimeFormat),
-					stat.Member,
+					memberID,
 					stat.Value,
 					stat.Platform,
 					stat.Product,
@@ -177,7 +231,7 @@ func main() {
 			if err == nil {
 				_, err = tx.Stmt(incrHourly).Exec(
 					stat.When.Format(dateTimeFormat),
-					stat.Member,
+					memberID,
 					stat.Value,
 					stat.Platform,
 					stat.Product,
@@ -192,7 +246,7 @@ func main() {
 			if err == nil {
 				_, err = tx.Stmt(setDaily).Exec(
 					stat.When.Format(dateTimeFormat),
-					stat.Member,
+					memberID,
 					stat.Value,
 					stat.Platform,
 					stat.Product,
@@ -205,7 +259,7 @@ func main() {
 			if err == nil {
 				_, err = tx.Stmt(setHourly).Exec(
 					stat.When.Format(dateTimeFormat),
-					stat.Member,
+					memberID,
 					stat.Value,
 					stat.Platform,
 					stat.Product,
@@ -219,7 +273,7 @@ func main() {
 		}
 		if err == nil {
 			_, err = tx.Stmt(latest).Exec(
-				stat.Member,
+				memberID,
 				stat.When.Format(dateTimeFormat),
 				stat.When.Format(dateTimeFormat),
 				stat.Platform,
@@ -237,7 +291,8 @@ func main() {
 		tx.Commit()
 		log.Println(stat)
 		return nil
-	}))
+	}),
+		10)
 	if err := consumer.ConnectToNSQD(nsqAddress); err != nil {
 		log.Fatal(err)
 	}

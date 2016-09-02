@@ -20,22 +20,22 @@ func getUserHourlyStats(user, stat string, last int) (userHourlyStats, error) {
 	var rval = userHourlyStats{}
 	var err error
 	var rows *sql.Rows
-	var stat_id int
-	stat_id, err = strconv.Atoi(stat)
+	var statID int
+	statID, err = strconv.Atoi(stat)
 	if err != nil {
 		return rval, err
 	}
 	if last >= 0 {
 		rows, err = db.Query(
-			"SELECT `when`,`value` FROM stats_hourly WHERE `member`=? AND `stat_id`=? AND `when` >= DATE_SUB(NOW(), INTERVAL ? HOUR)",
-			user,
-			stat_id,
+			"SELECT `when`,`value` FROM stats_hourly WHERE `member_id`=? AND `stat_id`=? AND `when` >= DATE_SUB(NOW(), INTERVAL ? HOUR)",
+			userToID.find(user),
+			statID,
 			last)
 	} else {
 		rows, err = db.Query(
-			"SELECT `when`,`value` FROM stats_hourly WHERE `member`=? AND `stat_id`=?",
-			user,
-			stat_id)
+			"SELECT `when`,`value` FROM stats_hourly WHERE `member_id`=? AND `stat_id`=?",
+			userToID.find(user),
+			statID)
 	}
 	if err != nil {
 		return rval, err
