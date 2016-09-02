@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -31,12 +30,8 @@ type stat struct {
 	Stat   statInfo
 }
 
-type stats []stat
-
-var lastestUserStats *sql.Stmt
-
-func getLatestUserStats(userid string) (stats, error) {
-	var rval = stats{}
+func getLatestUserStats(userid string) ([]stat, error) {
+	var rval = []stat{}
 	rows, err := lastestUserStats.Query(userToID.find(userid))
 	if err != nil {
 		return rval, err
@@ -88,18 +83,6 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func mindHTTP() {
-	lastestUserStats = mustPrepare(
-		"members latest daily stats query",
-		"  SELECT"+
-			"    h.member_id,"+
-			"    h.value,"+
-			"    s.*,"+
-			"    `when`"+
-			"  FROM stats_daily h"+
-			"  INNER JOIN stats_latest l"+
-			"  INNER JOIN stats s"+
-			"  ON(h.member_id=l.member_id and h.stat_id=l.stat_id and daily=`when` AND h.stat_id = s.ID)"+
-			"  WHERE l.member_id = ?")
 	r := mux.NewRouter()
 	r.HandleFunc("/v1/u/{userid}.json", handleUserJSON)
 	r.HandleFunc("/v1/stats.json", handleStatsList)
