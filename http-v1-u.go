@@ -9,7 +9,7 @@ import (
 )
 
 func init() {
-	router.HandleFunc("/v1/u/{userid}.json", func(w http.ResponseWriter, r *http.Request) {
+	router.Path("/v1/u/{userid}.json").Handler(mw(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/json")
 		v := mux.Vars(r)
 		if u, ok := v["userid"]; ok {
@@ -19,7 +19,7 @@ func init() {
 				json.NewEncoder(w).Encode(s)
 			}
 		}
-	})
+	}))
 }
 
 func getLatestUserStats(userid string) ([]stat, error) {

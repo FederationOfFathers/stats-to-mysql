@@ -13,7 +13,7 @@ type usersHourlySumStats map[string]userHourlySumStatsList
 type userHourlySumStatsList map[string]int
 
 func init() {
-	router.HandleFunc("/v1/hourly/sum.json", func(w http.ResponseWriter, r *http.Request) {
+	router.Path("/v1/hourly/sum.json").Handler(mw(func(w http.ResponseWriter, r *http.Request) {
 		users := strings.Split(r.URL.Query().Get("users"), ",")
 		if len(users) < 1 {
 			return
@@ -38,7 +38,7 @@ func init() {
 			}
 		}
 		json.NewEncoder(w).Encode(rval)
-	})
+	}))
 }
 
 func getUserHourlySumStats(user, stat string, last int) (int, error) {

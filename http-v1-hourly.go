@@ -17,7 +17,7 @@ type userHourlyStatsList map[string]userHourlyStats
 type userHourlyStats map[string]int
 
 func init() {
-	router.HandleFunc("/v1/hourly.{type}", func(w http.ResponseWriter, r *http.Request) {
+	router.Path("/v1/hourly.{type}").Handler(mw(func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		users := strings.Split(r.URL.Query().Get("users"), ",")
 		if len(users) < 1 {
@@ -63,7 +63,7 @@ func init() {
 				}
 			}
 		}
-	})
+	}))
 }
 
 func getUserHourlyStats(user, stat string, last int) (userHourlyStats, error) {

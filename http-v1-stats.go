@@ -20,14 +20,14 @@ type statDesc struct {
 type statList []statDesc
 
 func init() {
-	router.HandleFunc("/v1/stats.json", func(w http.ResponseWriter, r *http.Request) {
+	router.Path("/v1/stats.json").Handler(mw(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		rval, err := getStatsList()
 		if err != nil {
 			log.Println("Error getting stats list:", err.Error())
 		}
 		json.NewEncoder(w).Encode(rval)
-	})
+	}))
 }
 
 func getStatsList() (statList, error) {
