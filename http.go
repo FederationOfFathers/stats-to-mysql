@@ -1,11 +1,15 @@
 package main
 
 import (
+	"log"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/NYTimes/gziphandler"
 	"github.com/codegangsta/negroni"
 	"github.com/gorilla/mux"
+	"github.com/hashicorp/consul/api"
 	nocache "github.com/rabeesh/negroni-nocache"
 	"github.com/rs/cors"
 	"github.com/uber-go/zap"
@@ -55,6 +59,19 @@ func mw(fn func(w http.ResponseWriter, r *http.Request)) http.Handler {
 }
 
 func mindHTTP() {
+	listenParts := strings.Split(listenOn, ":")
+	listenPort, err := strconv.Atoi(listenParts[len(listenParts)-1])
+	if err != nil {
+		log.Fatalf("Unable to parse port from %s", listenOn)
+	}
+	err = consul.Agent().ServiceRegister(&api.AgentServiceRegistration{
+		Name: "stats-to-mysql",
+		Tags: []string{},
+		Port: listenPort,
+	})
+	if err != nil {
+		panic(err)
+	}
 	logger.Fatal(
 		"error starting API http server",
 		zap.String("listenOn", listenOn),
