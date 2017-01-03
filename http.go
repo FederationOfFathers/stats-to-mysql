@@ -56,7 +56,7 @@ func mw(fn func(w http.ResponseWriter, r *http.Request)) http.Handler {
 }
 
 func mindHTTP() {
-	if err := consul.RegisterListenOn("stats-to-mysql", listenOn); err != nil {
+	if err := consul.RegisterOn("stats-to-mysql", listenOn); err != nil {
 		panic(err)
 	}
 	logger.Fatal(
