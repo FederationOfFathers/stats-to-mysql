@@ -148,7 +148,7 @@ func mustPrepare(name string, query string) *sql.Stmt {
 func mustConnect() *sql.DB {
 	db, err := sql.Open(
 		"mysql",
-		fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", databaseUser, databasePassword, databaseHost, databasePort, databaseName))
+		fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true", databaseUser, databasePassword, databaseHost, databasePort, databaseName))
 	if err != nil {
 		log.Fatal(err)
 	}
