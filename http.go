@@ -2,20 +2,21 @@ package main
 
 import (
 	"net/http"
+	"os"
 
 	"github.com/FederationOfFathers/consul"
-	"github.com/NYTimes/gziphandler"
-	"github.com/codegangsta/negroni"
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
-	nocache "github.com/rabeesh/negroni-nocache"
-	"github.com/rs/cors"
-	"github.com/uber-go/zap"
+	"go.uber.org/zap"
 )
 
 var (
 	router   = mux.NewRouter()
 	listenOn = "0.0.0.0:8874"
-	logger   = zap.New(zap.NewJSONEncoder()).With(zap.String("module", "mysql-to-stats"))
+	logger   = func() *zap.Logger {
+		l, _ := zap.NewDevelopment()
+		return l.With(zap.String("module", "mysql-to-stats"))
+	}()
 )
 
 type statInfo struct {
@@ -37,22 +38,7 @@ type stat struct {
 }
 
 func mw(fn func(w http.ResponseWriter, r *http.Request)) http.Handler {
-	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:*", "http://127.0.0.*"},
-		AllowCredentials: true,
-	})
-	return gziphandler.GzipHandler(
-		c.Handler(
-			negroni.New(
-				&httpLogger{},
-				negroni.NewRecovery(),
-				nocache.New(true),
-				negroni.Wrap(
-					http.HandlerFunc(fn),
-				),
-			),
-		),
-	)
+	return http.HandlerFunc(fn)
 }
 
 func mindHTTP() {
@@ -62,5 +48,20 @@ func mindHTTP() {
 	logger.Fatal(
 		"error starting API http server",
 		zap.String("listenOn", listenOn),
-		zap.Error(http.ListenAndServe(listenOn, router)))
+		zap.Error(
+			http.ListenAndServe(
+				listenOn,
+				handlers.CORS(
+					handlers.AllowedOrigins([]string{"*"}),
+				)(
+					handlers.CombinedLoggingHandler(
+						os.Stdout,
+						handlers.CompressHandler(
+							router,
+						),
+					),
+				),
+			),
+		),
+	)
 }
